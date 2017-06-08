@@ -23,6 +23,7 @@ less
 bash-completion
 ca-certificates
 psmisc
+man-db
 "
 
 # The list of packages above makes it easy for humans, no make it a proper
@@ -48,7 +49,10 @@ function usage() {
       -n  the name for the new container
       -r  Debian release name (jessie, stretch, etc.) defaults to current stable.
       -u  name for the first user to create in the container. Does not create a
-          user by default.
+          user by default. Initial password will be the username - forced to
+          change on first login.
+      -k  Path to an ssh public key to add to the user's authorized_keys if a new
+          user is created. Optional.
       -h  show this help
     
 __END__
@@ -58,7 +62,7 @@ __END__
 # Parse options
 ##
 function parseOpts() {
-    OPTS='hr:n:u:'
+    OPTS='hr:n:u:k:'
     # Note that we use "$@" to let each command-line parameter expand to a
     # separate word. The quotes around "$@" are essential!
     # We need TEMP as the 'eval set --' would nuke the return value of getopt.
@@ -89,6 +93,11 @@ function parseOpts() {
                 shift 2
                 continue
             ;;
+            '-k')
+                USER1KEY="$2"
+                shift 2
+                continue
+            ;;
             '--')
                 shift
                 break
@@ -99,6 +108,19 @@ function parseOpts() {
             ;;
         esac
     done
+
+    # A key file is only allowed when a user is also created
+    [ -n "$USER1KEY" -a -z "$USER1" ] && \
+        echo "Can not add a public SSH key without a user." && exit 1
+    # If a key file is given it should exist and be a valid public key
+    if [ -n "$USER1KEY" ] ; then
+        [ ! -r "$USER1KEY" ] && \
+            echo "SSH pub key '$USER1KEY' does not exists, or is not readable." && \
+            exit 1
+        # Use file to try catch non public key
+        (file "$USER1KEY" | grep -qiv public) && \
+            echo "Does not seem to be a public SSH key: $USER1KEY" && exit 1
+    fi
 }
 
 ##
@@ -132,8 +154,9 @@ function postCreate() {
     # These will be run as root in the container.
     CMD_USERCREATE="
     adduser --disabled-password --gecos='$USER1' $USER1 || exit 1
-    echo '$USER1:$USER1' | chpasswd
-    echo '$USER1  ALL = NOPASSWD: ALL' > /etc/sudoers.d/$USER1
+    echo '$USER1:$USER1' | chpasswd  # Set initial password
+    chage -d 0 $USER1                # Force passw change on 1st login
+    echo '$USER1  ALL = NOPASSWD: ALL' > /etc/sudoers.d/$USER1   # Allow sudo
     "
     # Commands to run in the new container to set up the new user after it has
     # been created. These will be run as the new user in the container.
@@ -142,7 +165,18 @@ function postCreate() {
     cd easyEnv
     cp host_prompt_colors.dist host_prompt_colors
     sudo ./setupHost.sh
+    ssh-keygen -t rsa -f /home/${USER1}/.ssh/id_rsa -N ''
     "
+    # Command to copy the public key to the new user
+    if [ -n "$USER1KEY" ]; then
+        KEY="$(cat ${USER1KEY})"
+        CMD_SETUP_AUTHKEY="
+        echo '$KEY' >> ~/.ssh/authorized_keys
+        chmod 700 ~/.ssh/authorized_keys
+        "
+    else
+        CMD_SETUP_AUTHKEY=""
+    fi
 
     # Start the container 
     sudo lxc-start -n $CNAME
@@ -154,8 +188,12 @@ function postCreate() {
         # First execute the commands to create the user via a bash shell that
         # will read commands from stdin.
         echo -e "$CMD_USERCREATE" | sudo lxc-attach -n $CNAME -- bash -s
-        # Now execute the 
+        # Now execute the commands to set up the user
         echo -e "$CMD_SETUPUSER" | sudo lxc-attach -n $CNAME -- sudo -i -u $USER1 bash -s
+        # Create autorized_keys if we have a pub key
+        if [ -n "$CMD_SETUP_AUTHKEY" ]; then
+            echo -e "$CMD_SETUP_AUTHKEY" | sudo lxc-attach -n $CNAME -- sudo -i -u $USER1 bash -s
+        fi
     fi
 }
 
