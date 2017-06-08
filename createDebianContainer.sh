@@ -54,6 +54,14 @@ function usage() {
           change on first login.
       -k  Path to an ssh public key to add to the user's authorized_keys if a new
           user is created. Optional.
+      -L  Use lvm as backingstore instead of directory. See -N, -V and -S options. 
+      -N  The optional logical volume name use if the -L (lvm) option is on. The 
+          default lv name is the same as that of the container.
+      -V  The optional volume group to use for the logical volume if the -L (lvm)
+          option is active. Default is to use the 'lxc' volume group.
+      -S  The optional size for the logical volume when the -L (lvm) option is
+          active. Specify the value as for the '--size' option to 'lvcreate'.
+          The default is to create a 1GB volume.
       -h  show this help
     
 __END__
@@ -63,7 +71,7 @@ __END__
 # Parse options
 ##
 function parseOpts() {
-    OPTS='hr:n:u:k:'
+    OPTS='hr:n:u:k:LN:V:S:'
     # Note that we use "$@" to let each command-line parameter expand to a
     # separate word. The quotes around "$@" are essential!
     # We need TEMP as the 'eval set --' would nuke the return value of getopt.
@@ -99,6 +107,26 @@ function parseOpts() {
                 shift 2
                 continue
             ;;
+            '-L')
+                LVM="on"
+                shift 1
+                continue
+            ;;
+            '-N')
+                LVNAME="$2"
+                shift 2
+                continue
+            ;;
+            '-V')
+                VGNAME="$2"
+                shift 2
+                continue
+            ;;
+            '-S')
+                LVSIZE="$2"
+                shift 2
+                continue
+            ;;
             '--')
                 shift
                 break
@@ -122,6 +150,11 @@ function parseOpts() {
         (file "$USER1KEY" | grep -qiv public) && \
             echo "Does not seem to be a public SSH key: $USER1KEY" && exit 1
     fi
+    # If any of the lvm options are given, the -L option is required
+    if [ -n "$LVNAME" -o -n "$VGNAME" -o -n "$LVSIZE" ]; then
+        [ -z "$LVM" ] && echo "When using any lvm options, -L is required." && \
+            exit 1
+    fi
 }
 
 ##
@@ -132,7 +165,9 @@ function createContainer() {
 
     # Create the release arg and name if supplied
     REL=${REL:+"-r $REL"}
-    sudo lxc-create -n "$CNAME" -t debian -- \
+    # Create the backingstore args if lvm is needed
+    BS=${LVM:+-B lvm${LVNAME:+ --lvname $LVNAME}${VGNAME:+ --vgname $VGNAME}${LVSIZE:+ --fssize $LVSIZE}}
+    sudo lxc-create -n "$CNAME" -t debian $BS -- \
         $REL --mirror="$MIRROR" --security-mirror="$SECURITY_MIRROR" $OTHERREPOS \
         --packages="$PKGS"
 }
