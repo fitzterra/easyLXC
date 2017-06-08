@@ -24,6 +24,7 @@ bash-completion
 ca-certificates
 psmisc
 man-db
+tree
 "
 
 # The list of packages above makes it easy for humans, no make it a proper
