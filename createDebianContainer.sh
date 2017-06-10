@@ -2,34 +2,41 @@
 #
 # This script creates a Debian based LXC containier using the
 # /usr/share/lxc/templates/lxc-debian template
+#
+# Configure the Debian sources and mirrors to use for the new container in the
+# debSources.conf file.
+# Define any extra packages to install using the extraPackages.conf file.
 
 MYNAME=$(basename $0)
-# Set the package mirror env var
-MIRROR=http://approx.gaul.za:9999/debian
-SECURITY_MIRROR=http://approx.gaul.za:9999/security
-# This option will enable the debian contrib and non-free repos in the container.
-# Set it to the empty string to disbale this behaviour
-OTHERREPOS='--enable-non-free'
-# List of additional packages to install, one per line, all lines wrapped in
-# one set of quotes.
-PKGS="
-aptitude
-mc
-git
-vim-gtk
-iputils-ping
-sudo
-less
-bash-completion
-ca-certificates
-psmisc
-man-db
-tree
-"
+MYDIR=$(dirname $0)
 
-# The list of packages above makes it easy for humans, no make it a proper
-# comma separated list for the command line option.
-PKGS=$(echo $PKGS | sed -r -e 's/[ ,]+/,/g' -e 's/,$//')
+### Set the Debian package sources and config from the debSources.conf
+DEBMIRRORS=""
+OTHERREPOS=""
+PKGS=""
+if [ -f "${MYDIR}/debSources.conf" ]; then
+    source ${MYDIR}/debSources.conf || exit 1
+    # Set the mirror option if we have MIRROR available
+    [ -n "$MIRROR" ] && DEBMIRRORS="--mirror=\"$MIRROR\""
+    # Set the security mirror option if we have SECURITY_MIRROR available
+    [ -n "$SECURITY_MIRROR" ] && \
+        DEBMIRRORS="$DEBMIRRORS --security-mirror=\"$SECURITY_MIRROR\""
+    # The list of packages makes it easy for humans, now make it a proper
+    # comma separated list for the command line option.
+    PKGS=$(echo $PKGS | sed -r -e 's/[ ,]+/,/g' -e 's/,$//')
+fi
+
+# Source the list of extra packages to install
+PKGS=""
+if [ -f "${MYDIR}/extraPackages.conf" ]; then
+    source ${MYDIR}/extraPackages.conf || exit 1
+    # The list of packages makes it easy for humans, now make it a proper
+    # comma separated list for the command line option.
+    # First reomove all coments and empty lines
+    PKGS=$(echo "$PKGS" | sed -r -e 's/(\s+)?#.*//' -e 's/\s+//' | grep -v "^$")
+    # Now replace newlines with commas and remove any trailing commas
+    PKGS=$(echo "$PKGS" | tr '\n' ',' | sed 's/,$//')
+fi
 
 # Default empty release name
 REL=''
