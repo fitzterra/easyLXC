@@ -199,7 +199,7 @@ function postCreate() {
     adduser --disabled-password --gecos='$USER1' $USER1 || exit 1
     echo '$USER1:$USER1' | chpasswd  # Set initial password
     chage -d 0 $USER1                # Force passw change on 1st login
-    echo '$USER1  ALL = NOPASSWD: ALL' > /etc/sudoers.d/$USER1   # Allow sudo
+    echo '$USER1  ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/$USER1   # Allow sudo
     "
     # Commands to run in the new container to set up the new user after it has
     # been created. These will be run as the new user in the container.
